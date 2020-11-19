@@ -1,3 +1,5 @@
 syntfbs.egg-info/
 .vscode
 __pycache__
+*.h5.gz
+*.h5

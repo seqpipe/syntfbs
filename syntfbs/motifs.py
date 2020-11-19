@@ -26,6 +26,28 @@ def random_sequence_generator(length):
         yield result
 
 
+def mutate(sequence):
+    res = list(sequence)
+
+    nuc = random.choice(ALPHABET)
+    pos = random.randint(0, len(seq))
+    res[pos] = nuc
+
+    return "".join(res)
+
+
+def mutation_generator(seq, total_count=-1):
+    res = list(seq)
+    while total_count != 0:
+        yield "".join(res)
+        nuc = random.choice(ALPHABET)
+        pos = random.randint(0, len(seq) - 1)
+        res[pos] = nuc
+
+        total_count -= 1
+
+
+
 class Motifs:
 
     def __init__(self, motif):
@@ -78,12 +100,3 @@ class Motifs:
             result = "".join(seq)
 
             yield result
-
-    def mutation_generator(self, seq):
-        res = list(seq)
-        while True:
-            nuc = random.choice(ALPHABET)
-            pos = random.randint(0, len(seq))
-            res[pos] = nuc
-
-            yield "".join(res)

@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 
 from syntfbs.motifs import load_jaspar, \
-    random_sequence_generator, \
+    random_sequence_generator, mutation_generator, \
     Motifs
 
 
@@ -94,7 +94,7 @@ def test_motif_sequence_generator(jaspar_filename):
     last = seq
     print("last:", last)
 
-    for count, seq in enumerate(motif.mutation_generator(last)):
+    for count, seq in enumerate(mutation_generator(last)):
         print(seq, motif.sequence_score(seq))
 
         if count >= 5:
