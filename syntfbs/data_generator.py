@@ -28,7 +28,7 @@ class DataGenerator:
         self.bin_end = self.bin_start + self.bin_lenght
 
         self.chunk_size = chunk_size
-        self.mutations = 10
+        self.mutations = 15
         self.noise = 0.33
 
         self.data = []
@@ -77,7 +77,7 @@ class DataGenerator:
 
     def _select_rundom_mutations(self):
         mutations = np.random.poisson(
-            lam=math.floor(self.mutations/2) + 1)
+            lam=math.floor(self.mutations / 2) + 2)
         mutations = min(self.mutations, mutations)
         return mutations
 
@@ -88,7 +88,13 @@ class DataGenerator:
                 "mutations": self._select_rundom_mutations()
             }]
         result = []
-        for _ in range(math.floor(len(self.motifs) * self.noise)):
+        select_count = np.random.poisson(
+            lam=max(math.floor(len(self.motifs) / 2) - 1, 1))
+
+        select_count = min(select_count, len(self.motifs))
+        select_count = max(select_count, 1)
+
+        for _ in range(select_count):
             motif_index = random.randint(0, len(self.motifs) - 1)
             result.append({
                 "motif": motif_index,
@@ -231,27 +237,43 @@ if __name__ == "__main__":
     motif = Motifs.load_jaspar(motif_filename)
     motifs = [motif]
 
-    motifs = [
+    gata_motifs = [
         Motifs.load_jaspar(os.path.join(data_dirname, mfn))
         for mfn in gata_motifs
     ]
 
-    motifs = [
+    fox_motifs = [
         Motifs.load_jaspar(os.path.join(data_dirname, mfn))
         for mfn in fox_motifs
     ]
 
     generator = DataGenerator(
-        motifs,
+        fox_motifs,
         "FOX_train.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=10_000)
     
-    generator.generate(2)
+    generator.generate(10)
 
     generator = DataGenerator(
-        motifs,
+        fox_motifs,
         "FOX_test.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=10_000)
+    
+    generator.generate(1)
+
+    generator = DataGenerator(
+        gata_motifs,
+        "GATA_train.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=10_000)
+    
+    generator.generate(10)
+
+    generator = DataGenerator(
+        gata_motifs,
+        "GATA_test.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=10_000)
     
