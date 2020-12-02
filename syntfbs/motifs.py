@@ -26,12 +26,16 @@ def random_sequence_generator(length):
         yield result
 
 
-def mutate(sequence):
+def mutate(sequence, mutations=1):
+    assert mutations >= 0
+
     res = list(sequence)
 
-    nuc = random.choice(ALPHABET)
-    pos = random.randint(0, len(seq))
-    res[pos] = nuc
+    while mutations > 0:
+        nuc = random.choice(ALPHABET)
+        pos = random.randint(0, len(sequence) - 1)
+        res[pos] = nuc
+        mutations -= 1
 
     return "".join(res)
 
@@ -84,19 +88,26 @@ class Motifs:
         score = s_pr / b_pr
         score = np.product(score)
 
+        if not np.isfinite(score):
+            print(self.motif, seq, score, b_pr, s_pr)
+
         return score
 
-    def sequence_generator(self):
+    def generate(self):
         rows, cols = self.pwm.shape
         assert rows == 4
 
+        seq = []
+        for i in range(cols):
+            column = self.pwm[:, i]
+
+            res = np.random.choice(ALPHABET, 1, p=column)
+            seq.append(res[0])
+        result = "".join(seq)
+        return result
+
+    def sequence_generator(self):
+
         while True:
-            seq = []
-            for i in range(cols):
-                column = self.pwm[:, i]
-
-                res = np.random.choice(ALPHABET, 1, p=column)
-                seq.append(res[0])
-            result = "".join(seq)
-
+            result = self.generate()
             yield result
