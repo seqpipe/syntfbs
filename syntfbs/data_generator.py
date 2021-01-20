@@ -17,7 +17,8 @@ class DataGenerator:
 
     def __init__(
         self, motifs, filename,
-        slice_length=1000, bin_length=200, chunk_size=200):
+        slice_length=1000, bin_length=200, chunk_size=200,
+        mutations=15, noise=0.33, score_boundary=50):
     
         self.motifs = motifs
         self.filename = filename
@@ -28,8 +29,9 @@ class DataGenerator:
         self.bin_end = self.bin_start + self.bin_lenght
 
         self.chunk_size = chunk_size
-        self.mutations = 15
-        self.noise = 0.33
+        self.mutations = mutations
+        self.noise = noise
+        self.score_boundary = score_boundary
 
         self.data = []
         self.sequences = []
@@ -75,6 +77,26 @@ class DataGenerator:
         labels_volume.resize(start + len(labels_chunk), axis=0)
         labels_volume[start:start+len(labels_chunk)] = np.array(labels_chunk)
 
+
+    def _build_binlabels_volume(self):
+        shape = (0, len(self.motifs))
+        chunk = (self.chunk_size, len(self.motifs))
+
+        maxshape = (None, shape[1])
+        binlabels_volume = self.hdf5.create_dataset(
+            "binlabels", shape, chunks=chunk, maxshape=maxshape,
+            dtype=np.int8,
+            compression='gzip'
+        )
+        return binlabels_volume
+
+    def _write_binlabels_volume(self, binlabels_volume, binlabels_chunk):
+        start = binlabels_volume.shape[0]
+        print("labels:", binlabels_volume.shape, start, len(binlabels_chunk))
+        binlabels_volume.resize(start + len(binlabels_chunk), axis=0)
+        binlabels_volume[start:start+len(binlabels_chunk)] = \
+            np.array(binlabels_chunk)
+
     def _select_rundom_mutations(self):
         mutations = np.random.poisson(
             lam=math.floor(self.mutations / 2) + 2)
@@ -106,17 +128,23 @@ class DataGenerator:
         
         data = []
         labels = []
+        binlabels = []
 
         base_generator = random_sequence_generator(self.slice_length)
         
         while len(data) < total_count:
             # generate signal
-            for _ in range(math.floor(self.mutations*len(self.motifs))):
+            signal_count = max(
+                1, math.floor(self.mutations*len(self.motifs)))
+            # print("signal_count:", signal_count)
+
+            for _ in range(signal_count):
                 base_sequence = next(base_generator)
                 result = base_sequence
 
                 selected_motifs = self._select_motifs()
                 scores = np.zeros(shape=len(self.motifs), dtype=np.float64)
+                binscores = np.zeros(shape=len(self.motifs), dtype=np.int8)
 
                 for desc in selected_motifs:
                     motif_index = desc["motif"]
@@ -125,9 +153,11 @@ class DataGenerator:
                     motif_sequence = motif.generate()
                     motif_sequence = mutate(motif_sequence, mutations)
                     motif_score = motif.sequence_score(motif_sequence)
-                    if motif_score < 50:
-                        motif_score = 0.0
+                    motif_binscore = 1
+                    if motif_score < self.score_boundary:
+                        motif_binscore = 0
                     scores[motif_index] = motif_score
+                    binscores[motif_index] = motif_binscore
 
                     pos = random.randint(
                         self.bin_start, self.bin_end - len(motif) - 1)
@@ -138,21 +168,26 @@ class DataGenerator:
 
                 data.append(result)
                 labels.append(scores)
+                binlabels.append(binscores)
+
                 if len(data) >= total_count:
-                    return data, labels
+                    return data, labels, binlabels
 
             # generate pure noise
-            for _ in range(math.floor(self.noise * self.mutations)):
+            noise_count = math.floor(self.noise * self.mutations)
+            # print("noise_count:", noise_count)
+            for _ in range(noise_count):
                 sequence = next(base_generator)
                 # print(sequence, "noise")
 
                 data.append(sequence)
                 labels.append(np.zeros(len(self.motifs), dtype=np.float64))
+                binlabels.append(np.zeros(len(self.motifs), dtype=np.int8))
 
                 if len(data) >= total_count:
-                    return data, labels
+                    return data, labels, binlabels
 
-        return data, labels
+        return data, labels, binlabels
 
 
     def generate(self, chunks):
@@ -160,15 +195,18 @@ class DataGenerator:
 
         data_volume = self._build_data_volume()
         labels_volume = self._build_labels_volume()
+        binlabels_volume = self._build_binlabels_volume()
 
         for i in range(chunks):
             print(80*"=")
             print("chunk=", i)
 
-            data_chunk, labels_chunk = self.generate_chunk(self.chunk_size)
+            data_chunk, labels_chunk, binlabels_chunk = \
+                self.generate_chunk(self.chunk_size)
             print("data chunk generated...")
             self._write_data_volume(data_volume, data_chunk)
             self._write_labels_volume(labels_volume, labels_chunk)
+            self._write_binlabels_volume(binlabels_volume, binlabels_chunk)
 
         self.hdf5.close()
 
@@ -247,34 +285,57 @@ if __name__ == "__main__":
         for mfn in fox_motifs
     ]
 
-    generator = DataGenerator(
-        fox_motifs,
-        "FOX_train.h5",
-        slice_length=1000, bin_length=1000,
-        chunk_size=10_000)
+    # ##########################
+    # # FOX data generation
+    # generator = DataGenerator(
+    #     fox_motifs,
+    #     "FOX_train.h5",
+    #     slice_length=1000, bin_length=1000,
+    #     chunk_size=10_000)
     
-    generator.generate(10)
+    # generator.generate(10)
 
-    generator = DataGenerator(
-        fox_motifs,
-        "FOX_test.h5",
-        slice_length=1000, bin_length=1000,
-        chunk_size=10_000)
+    # generator = DataGenerator(
+    #     fox_motifs,
+    #     "FOX_test.h5",
+    #     slice_length=1000, bin_length=1000,
+    #     chunk_size=10_000)
     
-    generator.generate(1)
+    # generator.generate(1)
 
-    generator = DataGenerator(
-        gata_motifs,
-        "GATA_train.h5",
-        slice_length=1000, bin_length=1000,
-        chunk_size=10_000)
-    
-    generator.generate(10)
+    # ##########################
+    # # GATA data generation
 
-    generator = DataGenerator(
-        gata_motifs,
-        "GATA_test.h5",
-        slice_length=1000, bin_length=1000,
-        chunk_size=10_000)
+    # generator = DataGenerator(
+    #     gata_motifs,
+    #     "GATA_train.h5",
+    #     slice_length=1000, bin_length=1000,
+    #     chunk_size=10_000)
     
-    generator.generate(1)
+    # generator.generate(10)
+
+    # generator = DataGenerator(
+    #     gata_motifs,
+    #     "GATA_test.h5",
+    #     slice_length=1000, bin_length=1000,
+    #     chunk_size=10_000)
+    
+    # generator.generate(1)
+
+    ##########################
+    # TEST data generation
+    for mutations in [0, 1, 2, 3, 5, 8]:
+        generator = DataGenerator(
+            motifs,
+            f"MA0035_4_m{mutations}_train.h5",
+            slice_length=1000, bin_length=1000,
+            chunk_size=10_000, mutations=mutations)
+        generator.generate(10)
+
+        generator = DataGenerator(
+            motifs,
+            f"MA0035_4_m{mutations}_test.h5",
+            slice_length=1000, bin_length=1000,
+            chunk_size=10_000, mutations=mutations,
+            score_boundary=100)
+        generator.generate(1)

@@ -3,3 +3,4 @@ syntfbs.egg-info/
 __pycache__
 *.h5.gz
 *.h5
+.ipynb_checkpoints
