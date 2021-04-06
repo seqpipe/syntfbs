@@ -1,8 +1,10 @@
-
 import os
 import random
 import math
 import h5py
+import time
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from numpy.core.fromnumeric import shape
@@ -122,49 +124,84 @@ class DataGenerator:
                 "motif": motif_index,
                 "mutations": self._select_rundom_mutations(),
             })
+        # print("selected motifs:", result)
         return result
 
-    def generate_chunk(self, total_count):
-        
+    def generate_chunk(self, chunk_id):        
+        total_count = self.chunk_size
+
         data = []
         labels = []
         binlabels = []
 
         base_generator = random_sequence_generator(self.slice_length)
         
+        signal_count = max(
+            1, math.floor(self.mutations*len(self.motifs)))
+        print(f"({chunk_id}) signal_count:", signal_count)
+        noise_count = max(1, math.floor(self.noise * self.mutations))
+        print(f"({chunk_id}) noise_count:", noise_count)
+        start = time.time()
+
         while len(data) < total_count:
             # generate signal
-            signal_count = max(
-                1, math.floor(self.mutations*len(self.motifs)))
-            # print("signal_count:", signal_count)
+            elapsed = time.time() - start
+
+            print(
+                f"({chunk_id})", len(data), "/", total_count,
+                f"in {elapsed:.2f} sec")
 
             for _ in range(signal_count):
+                repeat_count = 0
+
                 base_sequence = next(base_generator)
-                result = base_sequence
-
                 selected_motifs = self._select_motifs()
-                scores = np.zeros(shape=len(self.motifs), dtype=np.float64)
-                binscores = np.zeros(shape=len(self.motifs), dtype=np.int8)
+                while True:
+                    scores = np.zeros(shape=len(self.motifs), dtype=np.float64)
+                    binscores = np.zeros(shape=len(self.motifs), dtype=np.int8)
+                    result = base_sequence
+                    for desc in selected_motifs:
+                        motif_index = desc["motif"]
+                        motif = self.motifs[motif_index]
+                        mutations = desc["mutations"]
+                        motif_sequence = motif.generate()
+                        motif_sequence = mutate(
+                            motif_sequence, 
+                            min(mutations, 2))
 
-                for desc in selected_motifs:
-                    motif_index = desc["motif"]
-                    motif = self.motifs[motif_index]
-                    mutations = desc["mutations"]
-                    motif_sequence = motif.generate()
-                    motif_sequence = mutate(motif_sequence, mutations)
-                    motif_score = motif.sequence_score(motif_sequence)
-                    motif_binscore = 1
-                    if motif_score < self.score_boundary:
+                        motif_score = motif.sequence_score(motif_sequence)
                         motif_binscore = 0
-                    scores[motif_index] = motif_score
-                    binscores[motif_index] = motif_binscore
+                        if motif_score >= self.score_boundary:
+                            repeat_count = 0
+                            print(".", end="")
+                            motif_binscore = 1
+                            pos = random.randint(
+                                self.bin_start, self.bin_end - len(motif) - 1)
 
-                    pos = random.randint(
-                        self.bin_start, self.bin_end - len(motif) - 1)
+                            result = f"{result[:pos]}{motif_sequence}" \
+                                f"{result[(pos + len(motif)):]}"
+                        else:
+                            motif_score = 0
 
-                    result = f"{result[:pos]}{motif_sequence}" \
-                        f"{result[(pos + len(motif)):]}"
+                        scores[motif_index] = motif_score
+                        binscores[motif_index] = motif_binscore
+
+                        if np.sum(binscores == 1) > 2:
+                            break
+
+                    if np.sum(binscores == 1) > 0:
+                        print("/", end="")
+                        break
+                    else:
+                        repeat_count += 1
+                        elapsed = time.time() - start
+                        print(
+                            f"\n({chunk_id}) {len(data)}/{total_count}; "
+                            f"REPEAT ({elapsed:.2f} secs)")
+
                     assert len(base_sequence) == len(result)
+                    if repeat_count > 20:
+                        break
 
                 data.append(result)
                 labels.append(scores)
@@ -174,8 +211,6 @@ class DataGenerator:
                     return data, labels, binlabels
 
             # generate pure noise
-            noise_count = math.floor(self.noise * self.mutations)
-            # print("noise_count:", noise_count)
             for _ in range(noise_count):
                 sequence = next(base_generator)
                 # print(sequence, "noise")
@@ -183,7 +218,6 @@ class DataGenerator:
                 data.append(sequence)
                 labels.append(np.zeros(len(self.motifs), dtype=np.float64))
                 binlabels.append(np.zeros(len(self.motifs), dtype=np.int8))
-
                 if len(data) >= total_count:
                     return data, labels, binlabels
 
@@ -191,6 +225,7 @@ class DataGenerator:
 
 
     def generate(self, chunks):
+
         self.hdf5 = h5py.File(self.filename, 'w')
 
         data_volume = self._build_data_volume()
@@ -198,12 +233,10 @@ class DataGenerator:
         binlabels_volume = self._build_binlabels_volume()
 
         for i in range(chunks):
-            print(80*"=")
-            print("chunk=", i)
 
             data_chunk, labels_chunk, binlabels_chunk = \
-                self.generate_chunk(self.chunk_size)
-            print("data chunk generated...")
+                self.generate_chunk(i)
+
             self._write_data_volume(data_volume, data_chunk)
             self._write_labels_volume(labels_volume, labels_chunk)
             self._write_binlabels_volume(binlabels_volume, binlabels_chunk)
@@ -285,57 +318,68 @@ if __name__ == "__main__":
         for mfn in fox_motifs
     ]
 
-    # ##########################
-    # # FOX data generation
-    # generator = DataGenerator(
-    #     fox_motifs,
-    #     "FOX_train.h5",
-    #     slice_length=1000, bin_length=1000,
-    #     chunk_size=10_000)
-    
-    # generator.generate(10)
-
-    # generator = DataGenerator(
-    #     fox_motifs,
-    #     "FOX_test.h5",
-    #     slice_length=1000, bin_length=1000,
-    #     chunk_size=10_000)
-    
-    # generator.generate(1)
-
-    # ##########################
-    # # GATA data generation
-
-    # generator = DataGenerator(
-    #     gata_motifs,
-    #     "GATA_train.h5",
-    #     slice_length=1000, bin_length=1000,
-    #     chunk_size=10_000)
-    
-    # generator.generate(10)
-
-    # generator = DataGenerator(
-    #     gata_motifs,
-    #     "GATA_test.h5",
-    #     slice_length=1000, bin_length=1000,
-    #     chunk_size=10_000)
-    
-    # generator.generate(1)
+    score_boundary = 5000
+    chunk_size = 10_000
 
     ##########################
-    # TEST data generation
-    for mutations in [0, 1, 2, 3, 5, 8]:
-        generator = DataGenerator(
-            motifs,
-            f"MA0035_4_m{mutations}_train.h5",
-            slice_length=1000, bin_length=1000,
-            chunk_size=10_000, mutations=mutations)
-        generator.generate(10)
+    # FOX data generation
+    generator = DataGenerator(
+        fox_motifs,
+        f"FOX_train_{score_boundary}.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=chunk_size,
+        score_boundary=score_boundary)
+    
+    generator.generate(30)
 
-        generator = DataGenerator(
-            motifs,
-            f"MA0035_4_m{mutations}_test.h5",
-            slice_length=1000, bin_length=1000,
-            chunk_size=10_000, mutations=mutations,
-            score_boundary=100)
-        generator.generate(1)
+    generator = DataGenerator(
+        fox_motifs,
+        f"FOX_test_{score_boundary}.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=chunk_size,
+        score_boundary=score_boundary)
+    
+    generator.generate(1)
+
+    ##########################
+    # GATA data generation
+
+    generator = DataGenerator(
+        gata_motifs,
+        f"GATA_train_{score_boundary}.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=chunk_size,
+        score_boundary=score_boundary)
+    
+    generator.generate(30)
+
+    generator = DataGenerator(
+        gata_motifs,
+        f"GATA_test_{score_boundary}.h5",
+        slice_length=1000, bin_length=1000,
+        chunk_size=chunk_size,
+        score_boundary=score_boundary)
+    
+    generator.generate(1)
+
+    # ##########################
+    # # TEST data generation
+    # for score_boundary in [
+    #         # 500, 1000, 2000, 3000, 5000
+    #         10_000]:
+
+    #     generator = DataGenerator(
+    #         motifs,
+    #         f"MA0035_4_s{score_boundary}_train.h5",
+    #         slice_length=1000, bin_length=1000,
+    #         chunk_size=10_000, mutations=0,
+    #         score_boundary=score_boundary)
+    #     generator.generate(10)
+
+    #     generator = DataGenerator(
+    #         motifs,
+    #         f"MA0035_4_s{score_boundary}_test.h5",
+    #         slice_length=1000, bin_length=1000,
+    #         chunk_size=10_000, mutations=0,
+    #         score_boundary=score_boundary)
+    #     generator.generate(1)
