@@ -167,7 +167,7 @@ class DataGenerator:
                         motif_sequence = motif.generate()
                         motif_sequence = mutate(
                             motif_sequence, 
-                            min(mutations, 2))
+                            min(mutations, 3))
 
                         motif_score = motif.sequence_score(motif_sequence)
                         motif_binscore = 0
@@ -186,7 +186,7 @@ class DataGenerator:
                         scores[motif_index] = motif_score
                         binscores[motif_index] = motif_binscore
 
-                        if np.sum(binscores == 1) > 2:
+                        if np.sum(binscores == 1) > 4:
                             break
 
                     if np.sum(binscores == 1) > 0:
@@ -318,49 +318,49 @@ if __name__ == "__main__":
         for mfn in fox_motifs
     ]
 
-    score_boundary = 5000
+    score_boundary = 3000
     chunk_size = 10_000
 
     ##########################
     # FOX data generation
     generator = DataGenerator(
         fox_motifs,
-        f"FOX_train_{score_boundary}.h5",
+        f"FOX_train_{score_boundary}_100.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=chunk_size,
         score_boundary=score_boundary)
     
-    generator.generate(30)
+    generator.generate(100)
 
     generator = DataGenerator(
         fox_motifs,
-        f"FOX_test_{score_boundary}.h5",
+        f"FOX_test_{score_boundary}_010.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=chunk_size,
         score_boundary=score_boundary)
     
-    generator.generate(1)
+    generator.generate(10)
 
     ##########################
     # GATA data generation
 
     generator = DataGenerator(
         gata_motifs,
-        f"GATA_train_{score_boundary}.h5",
+        f"GATA_train_{score_boundary}_100.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=chunk_size,
         score_boundary=score_boundary)
     
-    generator.generate(30)
+    generator.generate(100)
 
     generator = DataGenerator(
         gata_motifs,
-        f"GATA_test_{score_boundary}.h5",
+        f"GATA_test_{score_boundary}_010.h5",
         slice_length=1000, bin_length=1000,
         chunk_size=chunk_size,
         score_boundary=score_boundary)
     
-    generator.generate(1)
+    generator.generate(10)
 
     # ##########################
     # # TEST data generation
